@@ -37,7 +37,7 @@ parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default=256, type=int, 
                     metavar='N', help='mini-batch size (default: 256)')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate')
@@ -52,7 +52,9 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
 parser.add_argument("--seed", type=int, default=1234, metavar='BS', help='input batch size for training (default: 64)')
 parser.add_argument("--prefix", type=str, required=True, metavar='PFX', help='prefix for logging & checkpoint saving')
 parser.add_argument('--evaluate', dest='evaluate', action='store_true', help='evaluation only')
-parser.add_argument('--att-type', type=str, choices=['BAM', 'CBAM'], default=None)
+parser.add_argument('--att-type', type=str, choices=['BAM', 'CBAM', 'SAM', 'LSAM'], default=None)
+parser.add_argument("--position", type=int, default=1, metavar='Pos', help='position of attention module in the network')
+parser.add_argument("--block-num", type=int, default=0, metavar='BN', help='block number')
 best_prec1 = 0
 
 if not os.path.exists('./checkpoints'):
@@ -70,7 +72,7 @@ def main():
 
     # create model
     if args.arch == "resnet":
-        model = ResidualNet( 'ImageNet', args.depth, 1000, args.att_type )
+        model = ResidualNet('ImageNet', args.depth, 1000, args.att_type, args.position, args.block_num)
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
@@ -81,7 +83,6 @@ def main():
     model = torch.nn.DataParallel(model, device_ids=list(range(args.ngpu)))
     #model = torch.nn.DataParallel(model).cuda()
     model = model.cuda()
-    print ("model")
     print (model)
 
     # get the number of model parameters
@@ -110,37 +111,52 @@ def main():
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
+                                     std=[0.229, 0.224, 0.225])
+    transform = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                normalize
+            ])
 
     # import pdb
     # pdb.set_trace()
+    if os.path.split(args.data)[-1] == 'cifar10':
+        val_dataset = datasets.CIFAR10(args.data, train=False, transform=transform, target_transform=None, download=False)
+    elif os.path.split(args.data)[-1] == 'cifar100':
+        val_dataset = datasets.CIFAR100(args.data, train=False, transform=transform, target_transform=None, download=False)
+    else:
+        val_dataset = datasets.ImageFolder(valdir, transform)
+
     val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-                transforms.Scale(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize,
-                ])),
-            batch_size=args.batch_size, shuffle=False,
-           num_workers=args.workers, pin_memory=True)
+            val_dataset, batch_size=args.batch_size, shuffle=False,
+            num_workers=args.workers, pin_memory=True)
+
     if args.evaluate:
         validate(val_loader, model, criterion, 0)
         return
 
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose([
-            transforms.RandomSizedCrop(size0),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]))
+    if os.path.split(args.data)[-1] == 'cifar10':
+        train_dataset = datasets.CIFAR10(root=args.data, train=True, download=False, transform=transform)
+    elif os.path.split(args.data)[-1] == 'cifar100':
+        train_dataset = datasets.CIFAR100(root=args.data, train=True, download=False, transform=transform)
+    else:
+        train_dataset = datasets.ImageFolder(
+            traindir,
+            transforms.Compose([
+                transforms.RandomSizedCrop(size0),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normalize
+            ]))
+
 
     train_sampler = None
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
@@ -188,7 +204,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-        losses.update(loss.data[0], input.size(0))
+        losses.update(loss.data, input.size(0))
         top1.update(prec1[0], input.size(0))
         top5.update(prec5[0], input.size(0))
         
@@ -232,7 +248,7 @@ def validate(val_loader, model, criterion, epoch):
         
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-        losses.update(loss.data[0], input.size(0))
+        losses.update(loss.data, input.size(0))
         top1.update(prec1[0], input.size(0))
         top5.update(prec5[0], input.size(0))
         
