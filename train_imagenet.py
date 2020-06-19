@@ -29,7 +29,7 @@ parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet',
                         ' (default: resnet18)')
 parser.add_argument('--depth', default=50, type=int, metavar='D',
                     help='model depth')
-parser.add_argument('--ngpu', default=4, type=int, metavar='G',
+parser.add_argument('--ngpu', default=None, type=int, metavar='G',
                     help='number of gpus to use')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -67,7 +67,8 @@ def main():
     print ("args", args)
 
     torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    if args.ngpu is not None:
+        torch.cuda.manual_seed_all(args.seed)
     random.seed(args.seed)
 
     # create model
@@ -75,14 +76,19 @@ def main():
         model = ResidualNet('ImageNet', args.depth, 1000, args.att_type, args.position, args.block_num)
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda()
+    if args.ngpu is not None:
+        criterion = nn.CrossEntropyLoss().cuda()
+    else:
+        criterion = nn.CrossEntropyLoss()
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                             momentum=args.momentum,
                             weight_decay=args.weight_decay)
-    model = torch.nn.DataParallel(model, device_ids=list(range(args.ngpu)))
-    #model = torch.nn.DataParallel(model).cuda()
-    model = model.cuda()
+    
+    if args.ngpu is not None:
+        model = torch.nn.DataParallel(model, device_ids=list(range(args.ngpu)))
+        #model = torch.nn.DataParallel(model).cuda()
+        model = model.cuda()
     print (model)
 
     # get the number of model parameters
@@ -122,9 +128,9 @@ def main():
     # import pdb
     # pdb.set_trace()
     if os.path.split(args.data)[-1] == 'cifar10':
-        val_dataset = datasets.CIFAR10(args.data, train=False, transform=transform, target_transform=None, download=False)
+        val_dataset = datasets.CIFAR10(args.data, train=False, transform=transform, target_transform=None, download=True)
     elif os.path.split(args.data)[-1] == 'cifar100':
-        val_dataset = datasets.CIFAR100(args.data, train=False, transform=transform, target_transform=None, download=False)
+        val_dataset = datasets.CIFAR100(args.data, train=False, transform=transform, target_transform=None, download=True)
     else:
         val_dataset = datasets.ImageFolder(valdir, transform)
 
@@ -137,9 +143,9 @@ def main():
         return
 
     if os.path.split(args.data)[-1] == 'cifar10':
-        train_dataset = datasets.CIFAR10(root=args.data, train=True, download=False, transform=transform)
+        train_dataset = datasets.CIFAR10(root=args.data, train=True, download=True, transform=transform)
     elif os.path.split(args.data)[-1] == 'cifar100':
-        train_dataset = datasets.CIFAR100(root=args.data, train=True, download=False, transform=transform)
+        train_dataset = datasets.CIFAR100(root=args.data, train=True, download=True, transform=transform)
     else:
         train_dataset = datasets.ImageFolder(
             traindir,
@@ -194,7 +200,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # measure data loading time
         data_time.update(time.time() - end)
         
-        target = target.cuda(async=True)
+        # target = target.cuda(async=True)
         input_var = torch.autograd.Variable(input)
         target_var = torch.autograd.Variable(target)
         
@@ -238,7 +244,7 @@ def validate(val_loader, model, criterion, epoch):
 
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
-        target = target.cuda(async=True)
+        # target = target.cuda(async=True)
         input_var = torch.autograd.Variable(input, volatile=True)
         target_var = torch.autograd.Variable(target, volatile=True)
         
