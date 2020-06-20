@@ -11,7 +11,7 @@ class BasicBlock(nn.Module):
         if activation == 'relu':
             self.activation = nn.ReLU()
         elif activation == 'leakyrelu':
-            self.activation = nn.leakyReLU()
+            self.activation = nn.LeakyReLU()
         else:
             self.activation = None
 
@@ -35,7 +35,6 @@ class SpatialGate(nn.Module):
 
     def forward(self, x):
         x_out = self.spatial(self.layer(x) if self.layer is not None else x)
-        # x_out = torch.mean(x_out,1).unsqueeze(1)
         scale = torch.sigmoid(self.fusional(x_out))
         return x * scale
 

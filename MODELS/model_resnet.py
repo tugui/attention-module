@@ -5,7 +5,7 @@ import math
 from torch.nn import init
 from .cbam import *
 from .bam import *
-# from .lsam import *
+from .lsam import *
 from .se import *
 from .sam import *
 
@@ -16,7 +16,7 @@ def conv3x3(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, att_type=None, position=1, block_num=0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, att_type=None, position=0, block_num=0):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -31,20 +31,20 @@ class BasicBlock(nn.Module):
         else:
             self.cbam = None
 
-        if att_type == 'LSAM':
-            self.lsam = LSAM(planes, 3, block_num, planes)
+        if att_type == 'SE':
+            self.se = SE(planes, 16)
         else:
-            self.lsam = None
+            self.se = None
+
+        # if att_type == 'LSAM':
+        #     self.lsam = LSAM(planes, 3, block_num, planes)
+        # else:
+        #     self.lsam = None
 
         # if att_type == 'SAM':
         #     self.sam = SAM(planes, 3, block_num)
         # else:
         #     self.sam = None
-
-        if att_type == 'SE':
-            self.se = SE(planes, 16)
-        else:
-            self.se = None
 
     def forward(self, x):
         residual = x
@@ -59,13 +59,13 @@ class BasicBlock(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
-        if position == 2:
+        if self.position == 2:
             out = self.attention(out)
 
         out += residual
         out = self.relu(out)
 
-        if position == 1:
+        if self.position == 1:
             out = self.attention(out)
 
         return out
@@ -73,19 +73,18 @@ class BasicBlock(nn.Module):
     def attention(self, x):
         if self.cbam is not None:
             out = self.cbam(x)
-        # elif self.sam is not None:
-        #     out = self.sam(x)
-        elif self.lsam is not None:
-            out = self.lsam(x)
         elif self.se is not None:
             out = self.se(x)
-        
+        # elif self.sam is not None:
+        #     out = self.sam(x)
+        # elif self.lsam is not None:
+        #     out = self.lsam(x)
         return x
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, att_type=None, position=1, block_num=0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, att_type=None, position=0, block_num=0):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -105,31 +104,32 @@ class Bottleneck(nn.Module):
         else:
             self.cbam = None
 
-        if att_type == 'LSAM':
-            self.lsam = LSAM(planes * 4, 3, block_num, planes)
+        if att_type == 'SE':
+            self.se = SE(planes * 4, 16)
         else:
-            self.lsam = None
+            self.se = None
+
+        # if att_type == 'LSAM':
+        #     self.lsam = LSAM(planes * 4, 3, block_num, planes)
+        # else:
+        #     self.lsam = None
 
         # if att_type == 'SAM':
         #     self.sam = SAM(planes * 4, 3, block_num)
         # else:
         #     self.sam = None
 
-        if att_type == 'SE':
-            self.se = SE(planes * 4, 16)
-        else:
-            self.se = None
+        
 
     def attention(self, x):
         if self.cbam is not None:
             out = self.cbam(x)
-        # elif self.sam is not None:
-        #     out = self.sam(x)
-        elif self.lsam is not None:
-            out = self.lsam(x)
         elif self.se is not None:
             out = self.se(x)
-        
+        # elif self.sam is not None:
+        #     out = self.sam(x)
+        # elif self.lsam is not None:
+        #     out = self.lsam(x)
         return x
 
     def forward(self, x):
@@ -162,7 +162,7 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, layers, network_type, num_classes, att_type=None, position=1, block_num=0):
+    def __init__(self, block, layers, network_type, num_classes, att_type=None, position=0, block_num=0):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.network_type = network_type
@@ -198,6 +198,13 @@ class ResNet(nn.Module):
         else:
             self.sam1, self.sam2, self.sam3 = None, None, None
 
+        if att_type == 'LSAM':
+            self.lsam1 = LSAM(64*block.expansion, 3, block_num, 64*block.expansion)
+            self.lsam2 = LSAM(128*block.expansion, 3, block_num, 128*block.expansion)
+            self.lsam3 = LSAM(256*block.expansion, 3, block_num, 256*block.expansion)
+        else:
+            self.lsam1, self.lsam2, self.lsam3 = None, None, None
+
         self.layer1 = self._make_layer(block, 64,  layers[0], 1, att_type, position, block_num)
         self.layer2 = self._make_layer(block, 128, layers[1], 2, att_type, position, block_num)
         self.layer3 = self._make_layer(block, 256, layers[2], 2, att_type, position, block_num)
@@ -218,7 +225,7 @@ class ResNet(nn.Module):
             elif key.split(".")[-1]=='bias':
                 self.state_dict()[key][...] = 0
 
-    def _make_layer(self, block, planes, blocks, stride=1, att_type=None, position=1, block_num=0):
+    def _make_layer(self, block, planes, blocks, stride=1, att_type=None, position=0, block_num=0):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
@@ -249,6 +256,8 @@ class ResNet(nn.Module):
             x = self.com1(x)
         elif not self.sam1 is None:
             x = self.sam1(x)
+        elif not self.lsam1 is None:
+            x = self.lsam1(x)
 
         x = self.layer2(x)
         if not self.bam2 is None:
@@ -257,6 +266,8 @@ class ResNet(nn.Module):
             x = self.com2(x)
         elif not self.sam2 is None:
             x = self.sam2(x)
+        elif not self.lsam2 is None:
+            x = self.lsam2(x)
 
         x = self.layer3(x)
         if not self.bam3 is None:
@@ -265,6 +276,8 @@ class ResNet(nn.Module):
             x = self.com3(x)
         elif not self.sam3 is None:
             x = self.sam3(x)
+        elif not self.lsam3 is None:
+            x = self.lsam3(x)
 
         x = self.layer4(x)
 

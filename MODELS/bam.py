@@ -9,7 +9,7 @@ class Flatten(nn.Module):
 class ChannelGate(nn.Module):
     def __init__(self, gate_channel, reduction_ratio=16, num_layers=1):
         super(ChannelGate, self).__init__()
-        self.gate_activation = gate_activation
+        # self.gate_activation = gate_activation
         self.gate_c = nn.Sequential()
         self.gate_c.add_module( 'flatten', Flatten() )
         gate_channels = [gate_channel]
@@ -39,6 +39,7 @@ class SpatialGate(nn.Module):
         self.gate_s.add_module( 'gate_s_conv_final', nn.Conv2d(gate_channel//reduction_ratio, 1, kernel_size=1) )
     def forward(self, in_tensor):
         return self.gate_s( in_tensor ).expand_as(in_tensor)
+        
 class BAM(nn.Module):
     def __init__(self, gate_channel):
         super(BAM, self).__init__()
