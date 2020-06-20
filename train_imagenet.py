@@ -57,6 +57,13 @@ parser.add_argument("--position", type=int, default=0, metavar='Pos', help='posi
 parser.add_argument("--block-num", type=int, default=0, metavar='BN', help='block number')
 best_prec1 = 0
 
+mixed_precision = True
+try:  # Mixed precision training https://github.com/NVIDIA/apex
+    from apex import amp
+except:
+    print('Apex recommended for faster mixed precision training: https://github.com/NVIDIA/apex')
+    mixed_precision = False  # not installed
+
 if not os.path.exists('./checkpoints'):
     os.mkdir('./checkpoints')
 
@@ -72,7 +79,15 @@ def main():
 
     # create model
     if args.arch == "resnet":
-        model = ResidualNet('ImageNet', args.depth, 1000, args.att_type, args.position, args.block_num)
+        if os.path.split(args.data)[-1] == 'cifar10':
+            model = ResidualNet('CIFAR10', args.depth, 1000, args.att_type, args.position, args.block_num)
+        if os.path.split(args.data)[-1] == 'cifar100':
+            model = ResidualNet('CIFAR100', args.depth, 1000, args.att_type, args.position, args.block_num)
+        else:
+            model = ResidualNet('ImageNet', args.depth, 1000, args.att_type, args.position, args.block_num)
+    model = model.cuda()
+    print (model)
+
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
@@ -80,10 +95,13 @@ def main():
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                             momentum=args.momentum,
                             weight_decay=args.weight_decay)
+
+    if mixed_precision:
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O1', verbosity=0)
     model = torch.nn.DataParallel(model, device_ids=list(range(args.ngpu)))
     #model = torch.nn.DataParallel(model).cuda()
-    model = model.cuda()
-    print (model)
+
+    
 
     # get the number of model parameters
     print('Number of model parameters: {}'.format(
@@ -114,7 +132,17 @@ def main():
                                      std=[0.229, 0.224, 0.225])
     transform = transforms.Compose([
                 transforms.Resize(256),
-                transforms.CenterCrop(224),
+                transforms.RandomCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
+                transforms.ToTensor(),
+                normalize
+            ])
+    
+    transform2 = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
                 transforms.ToTensor(),
                 normalize
             ])
@@ -122,11 +150,20 @@ def main():
     # import pdb
     # pdb.set_trace()
     if os.path.split(args.data)[-1] == 'cifar10':
-        val_dataset = datasets.CIFAR10(args.data, train=False, transform=transform, target_transform=None, download=False)
+        val_dataset = datasets.CIFAR10(args.data, train=False, transform=transforms.Compose([
+                transforms.ToTensor(),
+                normalize
+            ]), target_transform=None, download=False)
     elif os.path.split(args.data)[-1] == 'cifar100':
-        val_dataset = datasets.CIFAR100(args.data, train=False, transform=transform, target_transform=None, download=False)
+        val_dataset = datasets.CIFAR100(args.data, train=False, transform=transforms.Compose([
+                transforms.ToTensor(),
+                normalize
+            ]), target_transform=None, download=False)
     else:
-        val_dataset = datasets.ImageFolder(valdir, transform)
+        val_dataset = datasets.ImageFolder(valdir, transform=transforms.Compose([
+                transforms.ToTensor(),
+                normalize
+            ]))
 
     val_loader = torch.utils.data.DataLoader(
             val_dataset, batch_size=args.batch_size, shuffle=False,
@@ -137,15 +174,16 @@ def main():
         return
 
     if os.path.split(args.data)[-1] == 'cifar10':
-        train_dataset = datasets.CIFAR10(root=args.data, train=True, download=False, transform=transform)
+        train_dataset = datasets.CIFAR10(root=args.data, train=True, download=False, transform=transform2)
     elif os.path.split(args.data)[-1] == 'cifar100':
-        train_dataset = datasets.CIFAR100(root=args.data, train=True, download=False, transform=transform)
+        train_dataset = datasets.CIFAR100(root=args.data, train=True, download=False, transform=transform2)
     else:
         train_dataset = datasets.ImageFolder(
             traindir,
             transforms.Compose([
-                transforms.RandomSizedCrop(size0),
+                transforms.RandomSizedCrop(224),
                 transforms.RandomHorizontalFlip(),
+                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
                 transforms.ToTensor(),
                 normalize
             ]))
@@ -210,7 +248,11 @@ def train(train_loader, model, criterion, optimizer, epoch):
         
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        loss.backward()
+        if mixed_precision:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
         optimizer.step()
         
         # measure elapsed time
