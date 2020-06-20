@@ -130,7 +130,7 @@ def main():
     valdir = os.path.join(args.data, 'val')
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
-    transform = transforms.Compose([
+    imagenet_transform = transforms.Compose([
                 transforms.Resize(256),
                 transforms.RandomCrop(224),
                 transforms.RandomHorizontalFlip(),
@@ -139,7 +139,7 @@ def main():
                 normalize
             ])
     
-    transform2 = transforms.Compose([
+    cifar_transform = transforms.Compose([
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
@@ -147,23 +147,19 @@ def main():
                 normalize
             ])
 
+    val_transform = transforms.Compose([
+                transforms.ToTensor(),
+                normalize
+            ])
+
     # import pdb
     # pdb.set_trace()
     if os.path.split(args.data)[-1] == 'cifar10':
-        val_dataset = datasets.CIFAR10(args.data, train=False, transform=transforms.Compose([
-                transforms.ToTensor(),
-                normalize
-            ]), target_transform=None, download=False)
+        val_dataset = datasets.CIFAR10(args.data, train=False, transform=val_transform, target_transform=None, download=False)
     elif os.path.split(args.data)[-1] == 'cifar100':
-        val_dataset = datasets.CIFAR100(args.data, train=False, transform=transforms.Compose([
-                transforms.ToTensor(),
-                normalize
-            ]), target_transform=None, download=False)
+        val_dataset = datasets.CIFAR100(args.data, train=False, transform=val_transform, target_transform=None, download=False)
     else:
-        val_dataset = datasets.ImageFolder(valdir, transform=transforms.Compose([
-                transforms.ToTensor(),
-                normalize
-            ]))
+        val_dataset = datasets.ImageFolder(valdir, val_transform)
 
     val_loader = torch.utils.data.DataLoader(
             val_dataset, batch_size=args.batch_size, shuffle=False,
@@ -174,19 +170,11 @@ def main():
         return
 
     if os.path.split(args.data)[-1] == 'cifar10':
-        train_dataset = datasets.CIFAR10(root=args.data, train=True, download=False, transform=transform2)
+        train_dataset = datasets.CIFAR10(root=args.data, train=True, download=False, transform=cifar_transform)
     elif os.path.split(args.data)[-1] == 'cifar100':
-        train_dataset = datasets.CIFAR100(root=args.data, train=True, download=False, transform=transform2)
+        train_dataset = datasets.CIFAR100(root=args.data, train=True, download=False, transform=cifar_transform)
     else:
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomSizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
-                transforms.ToTensor(),
-                normalize
-            ]))
+        train_dataset = datasets.ImageFolder(traindir, imagenet_transform)
 
 
     train_sampler = None
@@ -314,10 +302,10 @@ def validate(val_loader, model, criterion, epoch):
 
 
 def save_checkpoint(state, is_best, prefix):
-    filename='./checkpoints/%s_checkpoint.pth.tar'%prefix
+    filename='./checkpoints/%s_checkpoint.pth'%prefix
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, './checkpoints/%s_model_best.pth.tar'%prefix)
+        shutil.copyfile(filename, './checkpoints/%s_model_best.pth'%prefix)
 
 
 class AverageMeter(object):
