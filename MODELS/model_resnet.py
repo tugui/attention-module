@@ -5,7 +5,8 @@ import math
 from torch.nn import init
 from .cbam import *
 from .bam import *
-from .lsam import *
+from .lsam import LSAM
+from .lsam2 import LSAM2
 from .se import *
 from .sam import *
 
@@ -202,6 +203,10 @@ class ResNet(nn.Module):
             self.lsam1 = LSAM(64*block.expansion, 3, block_num, 64*block.expansion)
             self.lsam2 = LSAM(128*block.expansion, 3, block_num, 128*block.expansion)
             self.lsam3 = LSAM(256*block.expansion, 3, block_num, 256*block.expansion)
+        elif att_type == 'LSAM2':
+            self.lsam1 = LSAM2(64*block.expansion, 3, block_num, 64*block.expansion)
+            self.lsam2 = LSAM2(128*block.expansion, 3, block_num, 128*block.expansion)
+            self.lsam3 = LSAM2(256*block.expansion, 3, block_num, 256*block.expansion)
         else:
             self.lsam1, self.lsam2, self.lsam3 = None, None, None
 

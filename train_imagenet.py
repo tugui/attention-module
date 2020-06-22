@@ -52,7 +52,7 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
 parser.add_argument("--seed", type=int, default=1234, metavar='BS', help='input batch size for training (default: 64)')
 parser.add_argument("--prefix", type=str, required=True, metavar='PFX', help='prefix for logging & checkpoint saving')
 parser.add_argument('--evaluate', dest='evaluate', action='store_true', help='evaluation only')
-parser.add_argument('--att-type', type=str, choices=['BAM', 'CBAM', 'SAM', 'LSAM'], default=None)
+parser.add_argument('--att-type', type=str, choices=['BAM', 'CBAM', 'SAM', 'LSAM', 'LSAM2'], default=None)
 parser.add_argument("--position", type=int, default=0, metavar='Pos', help='position of attention module in the network')
 parser.add_argument("--block-num", type=int, default=0, metavar='BN', help='block number')
 best_prec1 = 0
